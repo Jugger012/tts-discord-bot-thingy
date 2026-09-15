@@ -254,7 +254,7 @@ Once connected, you will see output similar to:
 |---|---|---|
 | `/join` | *None* | Connects the bot to your current voice channel and starts listening. |
 | `/leave` | *None* | Stops playback, releases the voice sink, and disconnects from the channel. |
-| `/setvoice` | `attachment` (file) | Upload a `.wav`, `.mp3`, `.m4a`, `.flac`, or `.ogg` file to update the reference voice instantly. |
+| `/setvoice` | `file` (optional attachment), `path` (optional string) | Update voice reference via uploaded file (`.wav`, `.mp3`, `.m4a`, etc.), local path (e.g. `Sound Example/0809.mp3` with autocomplete), or URL. Also supports right-clicking an audio message in chat → Apps → **Set as Voice Reference**, or sending audio with `!setvoice`. |
 | `/mode` | `mode` (`voice` \| `text`) | Toggle between real-time voice-to-voice and text-to-voice hybrid mode in the current channel. |
 | `/skip` | *None* | Immediately skips and halts the audio response currently playing. |
 | `/clearctx` | *None* | Wipes the active conversation memory buffer to start fresh. |

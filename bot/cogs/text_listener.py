@@ -63,7 +63,7 @@ class TextListener(commands.Cog):
             return
 
         user_text = message.content.strip()
-        if not user_text:
+        if not user_text or user_text.startswith(("!", "/")):
             return
 
         log.info(

@@ -138,7 +138,7 @@ class VoiceActivitySink:
         """Tell the decoder we want decoded PCM, not raw Opus bytes."""
         return False
 
-    def write(self, data: object, source: object) -> None:
+    def write(self, data: object, source: object = None) -> None:
         """
         Called by PacketRouter for each decoded audio packet.
 

@@ -33,7 +33,8 @@ def create_bot() -> discord.Bot:
     intents.message_content = True   # needed for text-channel hybrid mode
     intents.voice_states = True       # needed to track who is in voice channels
 
-    bot = discord.Bot(intents=intents)
+    debug_guilds = [settings.discord_guild_id] if settings.discord_guild_id else None
+    bot = discord.Bot(intents=intents, debug_guilds=debug_guilds)
     return bot
 
 
@@ -66,6 +67,14 @@ async def main() -> None:
         log.info("TTS backend: %s | STT backend: %s | LLM: %s (%s)",
                  settings.tts_backend, settings.stt_backend,
                  settings.llm_backend, settings.llm_model)
+        if bot.guilds:
+            for guild in bot.guilds:
+                log.info("Connected to guild: %r (ID: %s)", guild.name, guild.id)
+            if not settings.discord_guild_id:
+                log.info(
+                    "💡 Tip: Set DISCORD_GUILD_ID=%s in .env for instant slash command sync during development.",
+                    bot.guilds[0].id,
+                )
 
     await load_cogs(bot)
     await bot.start(settings.discord_token)
