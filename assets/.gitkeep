@@ -1,0 +1,3 @@
+# Reference audio files (user-supplied, not version-controlled)
+reference_voice.wav
+reference_raw.*
