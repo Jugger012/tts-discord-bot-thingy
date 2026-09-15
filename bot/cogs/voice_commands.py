@@ -28,6 +28,30 @@ log = logging.getLogger(__name__)
 
 ALLOWED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".flac"}
 
+ELEVENLABS_PREMADE_VOICES: dict[str, str] = {
+    "Sarah": "EXAVITQu4vr4xnSDxMaL",
+    "George": "JBFqnCBsd6RMkjVDRZzb",
+    "Jessica": "cgSgspJ2msm6clMCkdW9",
+    "Laura": "FGY2WhTYpPnrIDTdsKH5",
+    "Liam": "TX3LPaxmHKxFdv7VOQHJ",
+    "Alice": "Xb7hH8MSUJpSbSDYk0k2",
+    "Bill": "pqHfZKP75CvOlQylNhV4",
+    "Brian": "nPczCjzI2devNBz1zQrb",
+    "Chris": "iP95p4xoKVk53GoZ742B",
+    "Daniel": "onwK4e9ZLuTAKqWW03F9",
+    "Eric": "cjVigY5qzO86Huf0OWal",
+    "Lily": "pFZP5JQG7iQjIQuC4Bku",
+    "Matilda": "XrExE9yKIg1WjnnlVkGX",
+    "Will": "bIHbv24MWmeRgasZH58o",
+}
+
+
+def get_premade_voice_choices(ctx: discord.AutocompleteContext) -> list[str]:
+    """Provide slash command autocomplete options for ElevenLabs premade voices."""
+    choices = [f"{name} ({vid})" for name, vid in ELEVENLABS_PREMADE_VOICES.items()]
+    val = (ctx.value or "").lower()
+    return [c for c in choices if val in c.lower()][:25]
+
 
 def get_audio_file_choices(ctx: discord.AutocompleteContext) -> list[str]:
     """Provide slash command autocomplete options for local audio files."""
@@ -109,32 +133,92 @@ class VoiceCommands(commands.Cog):
     # ── /setvoice & Voice Reference Handlers ──────────────────────────────────
 
     def _finalize_audio(self, raw_path: Path, source_name: str) -> tuple[bool, str]:
-        """Processes raw audio using prepare_reference.py and updates settings."""
+        """Processes raw audio using prepare_reference.py and updates settings and TTS adapter live."""
         try:
             from scripts.prepare_reference import process_audio
             out_path = process_audio(str(raw_path), str(settings.reference_audio_path))
             log.info("Voice reference updated from %s -> %s", source_name, out_path)
-            return True, (
-                f"✅ **Voice reference updated from `{source_name}`!**\n"
-                f"Cleaned, normalised, and saved as `{out_path}`."
-            )
         except Exception as exc:
             log.exception("Audio processing failed: %s", exc)
             shutil.copy2(str(raw_path), str(settings.reference_audio_path))
-            return True, (
-                f"⚠️ Auto-processing encountered an issue (`{exc}`).\n"
-                f"Raw file saved directly as `{settings.reference_audio_path}`."
-            )
+            out_path = str(settings.reference_audio_path)
+
+        tts = self.bot.voice_state.get("tts") if hasattr(self.bot, "voice_state") else None
+        extra_note = ""
+
+        if tts and hasattr(tts, "reload_reference"):
+            # ElevenLabs backend
+            success, result = tts.reload_reference(str(settings.reference_audio_path))
+            if success:
+                settings.elevenlabs_voice_id = result
+                try:
+                    from dotenv import set_key
+                    set_key(".env", "ELEVENLABS_VOICE_ID", result)
+                except Exception as e:
+                    log.warning("Failed to persist ELEVENLABS_VOICE_ID to .env: %s", e)
+                extra_note = (
+                    f"\n✨ **ElevenLabs cloned your voice live!** (Voice ID: `{result}`)\n"
+                    f"Applied immediately — **no restart needed!**"
+                )
+            else:
+                extra_note = (
+                    f"\n⚠️ **Voice reference saved locally**, but ElevenLabs voice cloning failed:\n"
+                    f"`{result}`\n"
+                    f"*(Your API key does not have `voices_write` permissions or is on free tier).*\n"
+                    f"💡 **Tip:** Use `/setvoice voice:` to pick a voice like `Sarah`, `George`, `Jessica`, `Laura`, or `Liam` without restarting!"
+                )
+        else:
+            extra_note = "\n✨ **Applied live immediately — no restart needed!**"
+
+        return True, (
+            f"✅ **Voice reference updated from `{source_name}`!**\n"
+            f"Cleaned, normalised, and saved as `{out_path}`.{extra_note}"
+        )
 
     async def _handle_setvoice_source(
         self,
+        voice: str | None = None,
         file: discord.Attachment | None = None,
         path: str | None = None,
     ) -> tuple[bool, str]:
         """
-        Processes an audio file from an uploaded attachment or path/URL.
+        Processes voice change from voice name/ID, uploaded attachment, or local path/URL.
         Returns (success: bool, message: str).
         """
+        # ── Case 0: Voice name or ID provided
+        if voice:
+            clean_voice = voice.strip()
+            import re
+            m = re.search(r"\(([a-zA-Z0-9_-]+)\)$", clean_voice)
+            if m:
+                target_vid = m.group(1)
+                voice_label = clean_voice.split("(")[0].strip()
+            elif clean_voice in ELEVENLABS_PREMADE_VOICES:
+                target_vid = ELEVENLABS_PREMADE_VOICES[clean_voice]
+                voice_label = clean_voice
+            elif clean_voice.title() in ELEVENLABS_PREMADE_VOICES:
+                target_vid = ELEVENLABS_PREMADE_VOICES[clean_voice.title()]
+                voice_label = clean_voice.title()
+            else:
+                target_vid = clean_voice
+                voice_label = clean_voice
+
+            tts = self.bot.voice_state.get("tts") if hasattr(self.bot, "voice_state") else None
+            if tts and hasattr(tts, "set_voice"):
+                tts.set_voice(target_vid)
+
+            settings.elevenlabs_voice_id = target_vid
+            try:
+                from dotenv import set_key
+                set_key(".env", "ELEVENLABS_VOICE_ID", target_vid)
+            except Exception as e:
+                log.warning("Failed to persist ELEVENLABS_VOICE_ID to .env: %s", e)
+
+            return True, (
+                f"✅ **Voice switched to {voice_label}** (`{target_vid}`)!\n"
+                f"✨ Applied live immediately — **no restart needed!**"
+            )
+
         assets_dir = Path("assets")
         assets_dir.mkdir(exist_ok=True)
 
@@ -147,13 +231,15 @@ class VoiceCommands(commands.Cog):
                 if f.is_file() and f.suffix.lower() in ALLOWED_AUDIO_EXTENSIONS
             ]
             files_str = "\n".join(f"• `{f}`" for f in local_files) if local_files else "• None found"
+            premade_str = ", ".join(f"`{k}`" for k in list(ELEVENLABS_PREMADE_VOICES.keys())[:7])
             return False, (
                 "ℹ️ **No audio file or path provided!**\n\n"
-                "You can update the reference voice using any of these methods:\n"
-                "1. **Upload file**: `/setvoice file:` (select a `.wav`, `.mp3`, `.m4a`, `.ogg`, or `.flac` file)\n"
-                "2. **Local path or URL**: `/setvoice path:` (e.g., `Sound Example/0809.mp3` or a web URL)\n"
-                "3. **Right-click an audio in chat**: Apps → **Set as Voice Reference**\n"
-                "4. **Chat message**: Upload an audio file with `!setvoice` in your message\n\n"
+                "You can change the bot's voice using any of these methods:\n"
+                f"1. **Select voice**: `/setvoice voice:` (options: {premade_str}, or custom Voice ID)\n"
+                "2. **Upload audio**: `/setvoice file:` (upload `.wav`, `.mp3`, `.m4a`, `.ogg`, or `.flac` file)\n"
+                "3. **Local path or URL**: `/setvoice path:` (e.g., `Sound Example/0809.mp3` or a web URL)\n"
+                "4. **Right-click audio**: Apps → **Set as Voice Reference**\n"
+                "5. **Chat message**: Upload audio or type `!setvoice <name>` (e.g. `!setvoice George`)\n\n"
                 f"**Available local sample files:**\n{files_str}"
             )
 
@@ -241,7 +327,14 @@ class VoiceCommands(commands.Cog):
 
     @discord.slash_command(
         name="setvoice",
-        description="Set voice cloning reference audio from uploaded file, local path, or URL",
+        description="Change voice: pick a voice name/ID, or upload audio reference (no restart needed!)",
+    )
+    @option(
+        "voice",
+        str,
+        description="Premade voice (Sarah, George, Jessica, Laura...) or custom Voice ID",
+        required=False,
+        autocomplete=discord.utils.basic_autocomplete(get_premade_voice_choices),
     )
     @option(
         "file",
@@ -259,11 +352,12 @@ class VoiceCommands(commands.Cog):
     async def setvoice(
         self,
         ctx: discord.ApplicationContext,
+        voice: str | None = None,
         file: discord.Attachment | None = None,
         path: str | None = None,
     ) -> None:
         await ctx.defer(ephemeral=True)
-        ok, msg = await self._handle_setvoice_source(file=file, path=path)
+        ok, msg = await self._handle_setvoice_source(voice=voice, file=file, path=path)
         await ctx.followup.send(msg)
 
     @discord.message_command(name="Set as Voice Reference")
@@ -299,7 +393,7 @@ class VoiceCommands(commands.Cog):
             return
 
         parts = content.split(maxsplit=1)
-        path_arg = parts[1].strip() if len(parts) > 1 else None
+        arg = parts[1].strip() if len(parts) > 1 else None
 
         audio_att = None
         for att in message.attachments:
@@ -307,8 +401,40 @@ class VoiceCommands(commands.Cog):
                 audio_att = att
                 break
 
-        ok, msg = await self._handle_setvoice_source(file=audio_att, path=path_arg)
+        voice_arg = None
+        path_arg = None
+        if arg:
+            if arg in ELEVENLABS_PREMADE_VOICES or arg.title() in ELEVENLABS_PREMADE_VOICES or len(arg) == 20:
+                voice_arg = arg
+            else:
+                path_arg = arg
+
+        ok, msg = await self._handle_setvoice_source(voice=voice_arg, file=audio_att, path=path_arg)
         await message.reply(msg)
+
+    # ── /restart ──────────────────────────────────────────────────────────────
+
+    @discord.slash_command(
+        name="restart",
+        description="Restart the bot process cleanly",
+    )
+    async def restart(self, ctx: discord.ApplicationContext) -> None:
+        """Restart the bot process cleanly."""
+        await ctx.respond("🔄 Restarting bot...", ephemeral=True)
+        log.info("Bot restart requested by %s", ctx.author)
+
+        # Disconnect voice cleanly if connected
+        if ctx.guild and ctx.guild.voice_client:
+            try:
+                await ctx.guild.voice_client.disconnect(force=True)
+            except Exception:
+                pass
+
+        import subprocess
+        import sys
+        subprocess.Popen([sys.executable] + sys.argv)
+        await self.bot.close()
+        sys.exit(0)
 
     # ── /mode ─────────────────────────────────────────────────────────────────
 

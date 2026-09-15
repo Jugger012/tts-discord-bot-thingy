@@ -234,6 +234,35 @@ class ElevenLabsAdapter(BaseTTSAdapter):
         self._mp3_to_wav(audio_bytes, out_path)
         return out_path
 
+    @property
+    def voice_id(self) -> Optional[str]:
+        return self._voice_id
+
+    def set_voice(self, voice_id: str) -> None:
+        """Dynamically update the active voice ID without restarting."""
+        self._voice_id = voice_id
+        log.info("ElevenLabs voice dynamically updated to: %s", voice_id)
+
+    def reload_reference(self, reference_path: str) -> tuple[bool, str]:
+        """
+        Attempt to clone a new voice from reference audio.
+        Returns (success, voice_id_or_error_message).
+        """
+        log.info("Attempting to clone updated reference audio in ElevenLabs: %s", reference_path)
+        try:
+            with open(reference_path, "rb") as f:
+                voice = self._client.voices.ivc.create(
+                    name="DiscordBotVoice",
+                    files=[f],
+                    description="Auto-cloned voice for Discord bot",
+                )
+            self._voice_id = voice.voice_id
+            log.info("ElevenLabs voice cloned successfully: %s", self._voice_id)
+            return True, self._voice_id
+        except Exception as exc:
+            log.warning("ElevenLabs voice cloning failed: %s", exc)
+            return False, str(exc)
+
     @staticmethod
     def _mp3_to_wav(mp3_bytes: bytes, out_path: Path) -> None:
         from pydub import AudioSegment  # type: ignore[import-untyped]
@@ -264,6 +293,15 @@ class CartesiaAdapter(BaseTTSAdapter):
         self._voice_id = voice_id
         self._session: Optional[httpx.Client] = None
         log.info("CartesiaAdapter initialised (voice_id: %s).", voice_id)
+
+    @property
+    def voice_id(self) -> str:
+        return self._voice_id
+
+    def set_voice(self, voice_id: str) -> None:
+        """Dynamically update the active voice ID without restarting."""
+        self._voice_id = voice_id
+        log.info("Cartesia voice dynamically updated to: %s", voice_id)
 
     def _get_session(self):  # type: ignore[return]
         import httpx

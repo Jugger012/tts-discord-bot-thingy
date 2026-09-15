@@ -73,3 +73,20 @@ def test_get_audio_file_choices():
     ctx.value = ""
     choices = get_audio_file_choices(ctx)
     assert isinstance(choices, list)
+
+
+def test_get_premade_voice_choices():
+    from bot.cogs.voice_commands import get_premade_voice_choices
+    ctx = MagicMock(spec=discord.AutocompleteContext)
+    ctx.value = "sar"
+    choices = get_premade_voice_choices(ctx)
+    assert any("Sarah" in c for c in choices)
+
+
+@pytest.mark.asyncio
+async def test_setvoice_by_name_success(dummy_cog):
+    with patch("dotenv.set_key"):
+        ok, msg = await dummy_cog._handle_setvoice_source(voice="George")
+        assert ok
+        assert "Voice switched to George" in msg
+        assert "no restart needed" in msg
