@@ -184,6 +184,8 @@ class ElevenLabsAdapter(BaseTTSAdapter):
         pip install elevenlabs
     """
 
+    DEFAULT_VOICE_ID = "EXAVITQu4vr4xnSDxMaL"  # Sarah (premade voice fallback)
+
     def __init__(self, api_key: str, voice_id: Optional[str] = None) -> None:
         from elevenlabs.client import ElevenLabs  # type: ignore[import-untyped]
 
@@ -202,21 +204,30 @@ class ElevenLabsAdapter(BaseTTSAdapter):
         # Lazily upload reference audio if no voice_id supplied
         if not self._voice_id:
             log.info("Uploading reference audio to ElevenLabs…")
-            with open(reference_path, "rb") as f:
-                voice = self._client.clone(
-                    name="DiscordBotVoice",
-                    files=[f],
-                    description="Auto-cloned voice for Discord bot",
+            try:
+                with open(reference_path, "rb") as f:
+                    voice = self._client.voices.ivc.create(
+                        name="DiscordBotVoice",
+                        files=[f],
+                        description="Auto-cloned voice for Discord bot",
+                    )
+                self._voice_id = voice.voice_id
+                log.info("ElevenLabs voice cloned: %s", self._voice_id)
+            except Exception as exc:
+                log.warning(
+                    "ElevenLabs voice cloning failed (%s). Falling back to premade voice (%s).",
+                    exc,
+                    self.DEFAULT_VOICE_ID,
                 )
-            self._voice_id = voice.voice_id
-            log.info("ElevenLabs voice cloned: %s", self._voice_id)
+                self._voice_id = self.DEFAULT_VOICE_ID
 
-        audio_bytes: bytes = self._client.generate(
+        audio_stream = self._client.text_to_speech.convert(
+            voice_id=self._voice_id,
             text=text,
-            voice=self._voice_id,
-            model="eleven_turbo_v2_5",
+            model_id="eleven_turbo_v2_5",
             output_format="mp3_44100_128",
-        )  # type: ignore[assignment]
+        )
+        audio_bytes = b"".join(audio_stream)
 
         # Save to temp WAV (convert MP3 → WAV via pydub for FFmpeg compatibility)
         out_path = _unique_path("elevenlabs", ".wav")
